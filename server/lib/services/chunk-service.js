@@ -1,26 +1,37 @@
-﻿const fs = require('node:fs');
+const fs = require('node:fs');
 const path = require('node:path');
-const { run, get } = require('../../db');
+const { run, get, all } = require('../../db');
+const { normalizeFolderPath } = require('../repos/file-repo');
 
 class ChunkUploadService {
   constructor({ db, config, uploadService }) {
     this.db = db;
     this.config = config;
     this.uploadService = uploadService;
+    this.ensureSchema();
     fs.mkdirSync(this.config.chunkDir, { recursive: true });
   }
 
-  initTask({ fileName, fileSize, fileType, totalChunks, storageMode, storageId }) {
+  ensureSchema() {
+    const columns = all(this.db, 'PRAGMA table_info(chunk_uploads)');
+    const hasFolderPath = columns.some((column) => column.name === 'folder_path');
+    if (!hasFolderPath) {
+      run(this.db, `ALTER TABLE chunk_uploads ADD COLUMN folder_path TEXT NOT NULL DEFAULT ''`);
+    }
+  }
+
+  initTask({ fileName, fileSize, fileType, totalChunks, storageMode, storageId, folderPath }) {
     const uploadId = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
     const now = Date.now();
     const expiresAt = now + 60 * 60 * 1000;
+    const normalizedFolderPath = normalizeFolderPath(folderPath);
 
     run(
       this.db,
       `INSERT INTO chunk_uploads(
          upload_id, file_name, file_size, file_type, total_chunks,
-         storage_mode, storage_config_id, created_at, expires_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         storage_mode, storage_config_id, folder_path, created_at, expires_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         uploadId,
         fileName,
@@ -29,6 +40,7 @@ class ChunkUploadService {
         totalChunks,
         storageMode || null,
         storageId || null,
+        normalizedFolderPath,
         now,
         expiresAt,
       ]
@@ -105,6 +117,7 @@ class ChunkUploadService {
       buffer: combined,
       storageMode: task.storage_mode,
       storageId: task.storage_config_id,
+      folderPath: normalizeFolderPath(task.folder_path),
     });
 
     this.cleanupTask(uploadId);

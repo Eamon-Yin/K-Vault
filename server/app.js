@@ -1,6 +1,9 @@
 ﻿const { Hono } = require('hono');
 const { cors } = require('hono/cors');
 const { createContainer } = require('./lib/container');
+const { normalizeFolderPath } = require('./lib/repos/file-repo');
+const { toStorageErrorPayload } = require('./lib/utils/storage-error');
+const { createShareSignature, verifyShareSignature } = require('./lib/utils/share-link');
 
 function createApp() {
   const app = new Hono();
@@ -107,6 +110,51 @@ function createApp() {
     return list
       .map((key) => String(key || '').trim())
       .filter(Boolean);
+  }
+
+  function normalizeUploadError(error, fallbackStatus = 500) {
+    const payload = toStorageErrorPayload(error, error?.status || fallbackStatus);
+    return {
+      error: payload.detail || 'Storage operation failed.',
+      errorCode: payload.code,
+      errorDetail: payload.message,
+      retriable: payload.retriable,
+    };
+  }
+
+  function getPublicOrigin(c) {
+    const configured = String(container.config.publicBaseUrl || '').trim().replace(/\/+$/, '');
+    if (configured) return configured;
+    const url = new URL(c.req.url);
+    return `${url.protocol}//${url.host}`;
+  }
+
+  function toAbsoluteUrl(c, path) {
+    return new URL(path, `${getPublicOrigin(c)}/`).toString();
+  }
+
+  function buildFileProxyHeaders(result, upstreamHeaders) {
+    const headers = new Headers(upstreamHeaders);
+    headers.set('Access-Control-Allow-Origin', '*');
+    headers.set('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+    headers.set('Access-Control-Allow-Headers', 'Range, Content-Type, Accept, Origin');
+    headers.set('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Accept-Ranges, Content-Disposition');
+    headers.set('Cache-Control', 'no-store, max-age=0');
+
+    if (!headers.get('content-type') && result.file.mime_type) {
+      headers.set('Content-Type', result.file.mime_type);
+    }
+    if (!headers.get('content-disposition')) {
+      const safeName = encodeURIComponent(result.file.file_name || result.file.id);
+      headers.set('Content-Disposition', `inline; filename="${safeName}"; filename*=UTF-8''${safeName}`);
+    }
+
+    return headers;
+  }
+
+  function parseShareExpiry(value, fallbackSeconds = 7 * 24 * 60 * 60) {
+    const seconds = parseBoundedInt(value, fallbackSeconds, 60, 365 * 24 * 60 * 60);
+    return Date.now() + (seconds * 1000);
   }
 
   // --- Auth ---
@@ -344,10 +392,20 @@ function createApp() {
     const item = storageRepo.getById(id, true);
     if (!item) return c.json({ error: 'Storage config not found.' }, 404);
 
-    const adapter = storageFactory.createAdapter(item);
-    const result = await adapter.testConnection();
-
-    return c.json({ success: true, result });
+    try {
+      const adapter = storageFactory.createAdapter(item);
+      const result = await adapter.testConnection();
+      const normalized = {
+        ...(result || {}),
+      };
+      if (!normalized.connected) {
+        normalized.errorModel = toStorageErrorPayload(normalized.detail || 'Connection failed', normalized.status);
+      }
+      return c.json({ success: true, result: normalized });
+    } catch (error) {
+      const payload = toStorageErrorPayload(error);
+      return c.json({ success: true, result: { connected: false, errorModel: payload, detail: payload.detail } });
+    }
   });
 
   app.post('/api/storage/default/:id', (c) => {
@@ -368,10 +426,20 @@ function createApp() {
 
     const { storageFactory } = getServices(c);
     const body = await c.req.json();
-    const adapter = storageFactory.createTemporaryAdapter(body.type, body.config || {});
-    const result = await adapter.testConnection();
-
-    return c.json({ success: true, result });
+    try {
+      const adapter = storageFactory.createTemporaryAdapter(body.type, body.config || {});
+      const result = await adapter.testConnection();
+      const normalized = {
+        ...(result || {}),
+      };
+      if (!normalized.connected) {
+        normalized.errorModel = toStorageErrorPayload(normalized.detail || 'Connection failed', normalized.status);
+      }
+      return c.json({ success: true, result: normalized });
+    } catch (error) {
+      const payload = toStorageErrorPayload(error);
+      return c.json({ success: true, result: { connected: false, errorModel: payload, detail: payload.detail } });
+    }
   });
 
   // --- Status ---
@@ -379,16 +447,22 @@ function createApp() {
     const { storageRepo, storageFactory, authService, guestService, settingsStore } = getServices(c);
 
     const status = {
-      telegram: { connected: false, message: 'Not configured' },
+      telegram: {
+        connected: false,
+        enabled: false,
+        configured: false,
+        layer: 'direct',
+        message: 'Not configured',
+      },
       kv: { connected: true, message: 'SQLite metadata storage enabled' },
-      r2: { connected: false, enabled: false, message: 'Not configured' },
-      s3: { connected: false, enabled: false, message: 'Not configured' },
-      discord: { connected: false, enabled: false, message: 'Not configured' },
-      huggingface: { connected: false, enabled: false, message: 'Not configured' },
-      webdav: { connected: false, enabled: false, message: 'Not configured' },
-      github: { connected: false, enabled: false, message: 'Not configured' },
-      gdrive: { connected: false, enabled: false, message: 'Not configured' },
-      onedrive: { connected: false, enabled: false, message: 'Not configured' },
+      r2: { connected: false, enabled: false, configured: false, layer: 'direct', message: 'Not configured' },
+      s3: { connected: false, enabled: false, configured: false, layer: 'direct', message: 'Not configured' },
+      discord: { connected: false, enabled: false, configured: false, layer: 'direct', message: 'Not configured' },
+      huggingface: { connected: false, enabled: false, configured: false, layer: 'direct', message: 'Not configured' },
+      webdav: { connected: false, enabled: false, configured: false, layer: 'mounted', message: 'Not configured' },
+      github: { connected: false, enabled: false, configured: false, layer: 'direct', message: 'Not configured' },
+      gdrive: { connected: false, enabled: false, configured: false, layer: 'direct', message: 'Not configured' },
+      onedrive: { connected: false, enabled: false, configured: false, layer: 'direct', message: 'Not configured' },
       auth: {
         enabled: authService.isAuthRequired(),
         message: authService.isAuthRequired() ? 'Password auth enabled' : 'No auth required',
@@ -399,38 +473,78 @@ function createApp() {
 
     status.settings = await settingsStore.healthCheck();
 
+    const configs = storageRepo.list(true);
     const byType = {
-      telegram: storageRepo.findEnabledByType('telegram')[0],
-      r2: storageRepo.findEnabledByType('r2')[0],
-      s3: storageRepo.findEnabledByType('s3')[0],
-      discord: storageRepo.findEnabledByType('discord')[0],
-      huggingface: storageRepo.findEnabledByType('huggingface')[0],
-      webdav: storageRepo.findEnabledByType('webdav')[0],
-      github: storageRepo.findEnabledByType('github')[0],
-      gdrive: storageRepo.findEnabledByType('gdrive')[0],
-      onedrive: storageRepo.findEnabledByType('onedrive')[0],
+      telegram: configs.find((item) => item.type === 'telegram') || null,
+      r2: configs.find((item) => item.type === 'r2') || null,
+      s3: configs.find((item) => item.type === 's3') || null,
+      discord: configs.find((item) => item.type === 'discord') || null,
+      huggingface: configs.find((item) => item.type === 'huggingface') || null,
+      webdav: configs.find((item) => item.type === 'webdav') || null,
+      github: configs.find((item) => item.type === 'github') || null,
+      gdrive: configs.find((item) => item.type === 'gdrive') || null,
+      onedrive: configs.find((item) => item.type === 'onedrive') || null,
     };
 
     for (const [type, storageConfig] of Object.entries(byType)) {
       if (!storageConfig) continue;
+      if (!storageConfig.enabled) {
+        status[type] = {
+          connected: false,
+          enabled: false,
+          configured: true,
+          layer: status[type]?.layer || 'direct',
+          message: `Configured (${storageConfig.name}) but disabled`,
+          configName: storageConfig.name,
+        };
+        continue;
+      }
       try {
         const adapter = storageFactory.createAdapter(storageConfig);
         const result = await adapter.testConnection();
         status[type] = {
           connected: Boolean(result.connected),
           enabled: Boolean(result.connected),
+          configured: true,
+          layer: status[type]?.layer || 'direct',
           message: result.connected
             ? `Connected (${storageConfig.name})`
             : (result.detail ? `Connection failed: ${result.detail}` : 'Connection failed'),
+          errorModel: result.connected
+            ? undefined
+            : toStorageErrorPayload(result.detail || 'Connection failed', result.status),
+          configName: storageConfig.name,
         };
       } catch (error) {
+        const errorModel = toStorageErrorPayload(error);
         status[type] = {
           connected: false,
           enabled: false,
-          message: `Connection error: ${error.message}`,
+          configured: true,
+          layer: status[type]?.layer || 'direct',
+          message: `Connection error: ${errorModel.detail}`,
+          errorModel,
+          configName: storageConfig.name,
         };
       }
     }
+
+    status.capabilities = [
+      { type: 'telegram', label: 'Telegram', layer: 'direct', enableHint: 'Create a Telegram storage profile in Storage Config.' },
+      { type: 'r2', label: 'Cloudflare R2', layer: 'direct', enableHint: 'Create an R2 profile with endpoint/bucket/keys.' },
+      { type: 's3', label: 'S3 Compatible', layer: 'direct', enableHint: 'Create an S3 profile with endpoint/region/bucket/keys.' },
+      { type: 'discord', label: 'Discord', layer: 'direct', enableHint: 'Create a Discord webhook or bot profile.' },
+      { type: 'huggingface', label: 'HuggingFace', layer: 'direct', enableHint: 'Create a HuggingFace profile with token + dataset repo.' },
+      { type: 'github', label: 'GitHub', layer: 'direct', enableHint: 'Create a GitHub profile in Releases or Contents mode.' },
+      { type: 'gdrive', label: 'Google Drive', layer: 'direct', enableHint: 'Create a Google Drive profile with folder ID and auth.' },
+      { type: 'onedrive', label: 'OneDrive', layer: 'direct', enableHint: 'Create a OneDrive profile with access token or app credentials.' },
+      {
+        type: 'webdav',
+        label: 'WebDAV (Mounted)',
+        layer: 'mounted',
+        enableHint: 'Recommended for mounted/aggregated storage (e.g. alist/openlist WebDAV endpoint).',
+      },
+    ];
 
     return c.json(status);
   });
@@ -460,20 +574,32 @@ function createApp() {
       }
     }
 
-    const result = await uploadService.uploadFile({
-      fileName: file.name,
-      mimeType: file.type,
-      fileSize,
-      buffer: fileBuffer,
-      storageMode: asString(body.storageMode || body.storage),
-      storageId: asString(body.storageId || body.storage_config_id),
-    });
+    let result;
+    try {
+      result = await uploadService.uploadFile({
+        fileName: file.name,
+        mimeType: file.type,
+        fileSize,
+        buffer: fileBuffer,
+        storageMode: asString(body.storageMode || body.storage),
+        storageId: asString(body.storageId || body.storage_config_id),
+        folderPath: normalizeFolderPath(body.folderPath || body.folder || ''),
+      });
+    } catch (error) {
+      return c.json(normalizeUploadError(error), 502);
+    }
 
     if (!auth.authenticated) {
       guestService.incrementUsage(c.req.raw);
     }
 
-    return c.json([{ src: result.src, storageType: result.storage.type, storageId: result.storage.id }]);
+    return c.json([{
+      src: result.src,
+      storageType: result.storage.type,
+      storageId: result.storage.id,
+      fileId: result.file?.id,
+      folderPath: result.file?.metadata?.folderPath || '',
+    }]);
   });
 
   app.post('/api/upload-from-url', async (c) => {
@@ -492,18 +618,30 @@ function createApp() {
       }
     }
 
-    const result = await uploadService.uploadFromUrl({
-      url: payload.url,
-      storageMode: asString(payload.storageMode || payload.storage),
-      storageId: asString(payload.storageId || payload.storage_config_id),
-      maxBytes: Math.min(container.config.uploadSmallFileThreshold, container.config.uploadMaxSize),
-    });
+    let result;
+    try {
+      result = await uploadService.uploadFromUrl({
+        url: payload.url,
+        storageMode: asString(payload.storageMode || payload.storage),
+        storageId: asString(payload.storageId || payload.storage_config_id),
+        folderPath: normalizeFolderPath(payload.folderPath || payload.folder || ''),
+        maxBytes: Math.min(container.config.uploadSmallFileThreshold, container.config.uploadMaxSize),
+      });
+    } catch (error) {
+      return c.json(normalizeUploadError(error), 502);
+    }
 
     if (!auth.authenticated) {
       guestService.incrementUsage(c.req.raw);
     }
 
-    return c.json([{ src: result.src, storageType: result.storage.type, storageId: result.storage.id }]);
+    return c.json([{
+      src: result.src,
+      storageType: result.storage.type,
+      storageId: result.storage.id,
+      fileId: result.file?.id,
+      folderPath: result.file?.metadata?.folderPath || '',
+    }]);
   });
 
   // --- Chunk upload ---
@@ -533,6 +671,7 @@ function createApp() {
       totalChunks,
       storageMode: asString(body.storageMode),
       storageId: asString(body.storageId),
+      folderPath: normalizeFolderPath(body.folderPath || body.folder || ''),
     });
 
     return c.json({ success: true, ...init });
@@ -577,13 +716,20 @@ function createApp() {
     const body = await c.req.json().catch(() => ({}));
     if (!body.uploadId) return c.json({ error: 'uploadId is required.' }, 400);
 
-    const result = await chunkService.complete(body.uploadId);
+    let result;
+    try {
+      result = await chunkService.complete(body.uploadId);
+    } catch (error) {
+      return c.json(normalizeUploadError(error), 502);
+    }
 
     return c.json({
       success: true,
       src: result.src,
       fileName: result.file.file_name,
       fileSize: result.file.file_size,
+      fileId: result.file.id,
+      folderPath: result.file.metadata?.folderPath || '',
     });
   });
 
@@ -609,6 +755,7 @@ function createApp() {
       listType: file.list_type,
       label: file.label,
       liked: Boolean(file.liked),
+      folderPath: file.metadata?.folderPath || '',
     });
   });
 
@@ -623,22 +770,7 @@ function createApp() {
     }
 
     const upstream = result.response;
-    const headers = new Headers(upstream.headers);
-
-    headers.set('Access-Control-Allow-Origin', '*');
-    headers.set('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
-    headers.set('Access-Control-Allow-Headers', 'Range, Content-Type, Accept, Origin');
-    headers.set('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Accept-Ranges, Content-Disposition');
-    headers.set('Cache-Control', 'no-store, max-age=0');
-
-    if (!headers.get('content-type') && result.file.mime_type) {
-      headers.set('Content-Type', result.file.mime_type);
-    }
-
-    if (!headers.get('content-disposition')) {
-      const safeName = encodeURIComponent(result.file.file_name || result.file.id);
-      headers.set('Content-Disposition', `inline; filename="${safeName}"; filename*=UTF-8''${safeName}`);
-    }
+    const headers = buildFileProxyHeaders(result, upstream.headers);
 
     return new Response(upstream.body, {
       status: upstream.status,
@@ -659,17 +791,81 @@ function createApp() {
     }
 
     const upstream = result.response;
-    const headers = new Headers(upstream.headers);
-    headers.set('Access-Control-Allow-Origin', '*');
-    headers.set('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
-    headers.set('Access-Control-Allow-Headers', 'Range, Content-Type, Accept, Origin');
-    headers.set('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Accept-Ranges, Content-Disposition');
-    headers.set('Cache-Control', 'no-store, max-age=0');
+    const headers = buildFileProxyHeaders(result, upstream.headers);
 
     return new Response(null, {
       status: upstream.status,
       statusText: upstream.statusText,
       headers,
+    });
+  });
+
+  app.get('/share/:id', async (c) => {
+    const { uploadService } = getServices(c);
+    const fileId = decodeURIComponent(c.req.param('id'));
+    const expiresAt = Number(c.req.query('exp') || 0);
+    const signature = c.req.query('sig') || '';
+    const range = c.req.header('range');
+
+    if (!Number.isFinite(expiresAt) || expiresAt <= 0) {
+      return c.text('Invalid share expiry.', 400);
+    }
+    if (Date.now() > expiresAt) {
+      return c.text('Share link expired.', 410);
+    }
+
+    const secret = container.config.sessionSecret || container.config.configEncryptionKey;
+    if (!verifyShareSignature({ fileId, expiresAt, signature, secret })) {
+      return c.text('Invalid share signature.', 403);
+    }
+
+    const result = await uploadService.getFileResponse(fileId, range);
+    if (!result) {
+      return c.text('File not found', 404);
+    }
+
+    const upstream = result.response;
+    const headers = buildFileProxyHeaders(result, upstream.headers);
+    headers.set('Cache-Control', 'private, max-age=60');
+
+    return new Response(upstream.body, {
+      status: upstream.status,
+      statusText: upstream.statusText,
+      headers,
+    });
+  });
+
+  app.options('/share/:id', (c) => c.body(null, 204));
+
+  app.post('/api/share/sign', async (c) => {
+    const unauthorized = requireAuth(c);
+    if (unauthorized) return unauthorized;
+
+    const { fileRepo } = getServices(c);
+    const body = await c.req.json().catch(() => ({}));
+    const fileId = asString(body.fileId || body.id).trim();
+    if (!fileId) {
+      return c.json({ error: 'fileId is required.' }, 400);
+    }
+
+    const file = fileRepo.getById(fileId);
+    if (!file) {
+      return c.json({ error: 'File not found.' }, 404);
+    }
+
+    const expiresAt = parseShareExpiry(body.ttlSeconds || body.expiresIn || body.ttl || undefined);
+    const secret = container.config.sessionSecret || container.config.configEncryptionKey;
+    const signature = createShareSignature({ fileId, expiresAt, secret });
+    const sharePath = `/share/${encodeURIComponent(fileId)}?exp=${expiresAt}&sig=${encodeURIComponent(signature)}`;
+
+    return c.json({
+      success: true,
+      permission: 'public-read-signed',
+      expiresAt,
+      sharePath,
+      shareUrl: toAbsoluteUrl(c, sharePath),
+      directPath: `/file/${encodeURIComponent(fileId)}`,
+      directUrl: toAbsoluteUrl(c, `/file/${encodeURIComponent(fileId)}`),
     });
   });
 
@@ -700,6 +896,7 @@ function createApp() {
     const storage = c.req.query('storage') || 'all';
     const search = c.req.query('search') || '';
     const listType = c.req.query('listType') || c.req.query('list_type') || 'all';
+    const folderPath = normalizeFolderPath(c.req.query('folderPath') || c.req.query('path') || '');
 
     const includeStatsRaw = String(c.req.query('includeStats') || c.req.query('stats') || '').toLowerCase();
     const includeStats = ['1', 'true', 'yes'].includes(includeStatsRaw);
@@ -712,10 +909,193 @@ function createApp() {
         storageType: storage,
         search,
         listType,
+        folderPath: c.req.query('folderPath') != null || c.req.query('path') != null ? folderPath : undefined,
       },
     });
 
     return c.json(payload);
+  });
+
+  app.get('/api/drive/tree', (c) => {
+    const unauthorized = requireAuth(c);
+    if (unauthorized) return unauthorized;
+
+    const { fileRepo } = getServices(c);
+    const storage = c.req.query('storage') || 'all';
+
+    const nodes = fileRepo.listFolderTree({
+      storageType: storage,
+    });
+
+    return c.json({
+      success: true,
+      nodes,
+    });
+  });
+
+  app.get('/api/drive/explorer', (c) => {
+    const unauthorized = requireAuth(c);
+    if (unauthorized) return unauthorized;
+
+    const { fileRepo } = getServices(c);
+    const limit = parseBoundedInt(c.req.query('limit'), 100, 1, 1000);
+    const cursor = c.req.query('cursor');
+    const storage = c.req.query('storage') || 'all';
+    const search = c.req.query('search') || '';
+    const listType = c.req.query('listType') || c.req.query('list_type') || 'all';
+    const includeStatsRaw = String(c.req.query('includeStats') || c.req.query('stats') || '').toLowerCase();
+    const includeStats = ['1', 'true', 'yes'].includes(includeStatsRaw);
+    const folderPath = normalizeFolderPath(c.req.query('path') || c.req.query('folderPath') || '');
+
+    const payload = fileRepo.listExplorer({
+      folderPath,
+      limit,
+      cursor,
+      includeStats,
+      filters: {
+        storageType: storage,
+        search,
+        listType,
+      },
+    });
+
+    return c.json({
+      success: true,
+      ...payload,
+    });
+  });
+
+  app.post('/api/drive/folders', async (c) => {
+    const unauthorized = requireAuth(c);
+    if (unauthorized) return unauthorized;
+
+    const { fileRepo } = getServices(c);
+    const body = await c.req.json().catch(() => ({}));
+    const path = normalizeFolderPath(body.path || body.folderPath);
+
+    if (!path) {
+      return c.json({ error: 'path is required.' }, 400);
+    }
+
+    const folder = fileRepo.createFolder(path);
+    return c.json({ success: true, folder });
+  });
+
+  app.post('/api/drive/folders/move', async (c) => {
+    const unauthorized = requireAuth(c);
+    if (unauthorized) return unauthorized;
+
+    const { fileRepo } = getServices(c);
+    const body = await c.req.json().catch(() => ({}));
+    const sourcePath = normalizeFolderPath(body.sourcePath);
+    let targetPath = normalizeFolderPath(body.targetPath);
+    if (!targetPath && body.targetParentPath && body.newName) {
+      targetPath = normalizeFolderPath(`${body.targetParentPath}/${body.newName}`);
+    }
+
+    if (!sourcePath || !targetPath) {
+      return c.json({ error: 'sourcePath and targetPath are required.' }, 400);
+    }
+
+    const result = fileRepo.moveFolder(sourcePath, targetPath);
+    return c.json({ success: true, ...result });
+  });
+
+  app.delete('/api/drive/folders', async (c) => {
+    const unauthorized = requireAuth(c);
+    if (unauthorized) return unauthorized;
+
+    const { fileRepo, uploadService } = getServices(c);
+    const path = normalizeFolderPath(c.req.query('path'));
+    const recursive = isTruthy(c.req.query('recursive'));
+
+    if (!path) {
+      return c.json({ error: 'path is required.' }, 400);
+    }
+
+    if (recursive) {
+      const fileIds = fileRepo.listFileIdsByFolderPrefix(path);
+      for (const fileId of fileIds) {
+        await uploadService.deleteFile(fileId);
+      }
+    }
+
+    const result = fileRepo.deleteFolder(path, { recursive });
+    return c.json({
+      success: true,
+      recursive,
+      ...result,
+    });
+  });
+
+  app.post('/api/drive/files/move', async (c) => {
+    const unauthorized = requireAuth(c);
+    if (unauthorized) return unauthorized;
+
+    const { fileRepo } = getServices(c);
+    const body = await c.req.json().catch(() => ({}));
+    const ids = Array.isArray(body.ids) ? body.ids : [];
+    const targetFolderPath = normalizeFolderPath(body.targetFolderPath || body.path || '');
+
+    const result = fileRepo.moveFiles(ids, targetFolderPath);
+    return c.json({
+      success: true,
+      ...result,
+    });
+  });
+
+  app.post('/api/drive/files/rename', async (c) => {
+    const unauthorized = requireAuth(c);
+    if (unauthorized) return unauthorized;
+
+    const { fileRepo } = getServices(c);
+    const body = await c.req.json().catch(() => ({}));
+    const id = asString(body.id).trim();
+    const fileName = asString(body.fileName || body.name).trim();
+
+    if (!id || !fileName) {
+      return c.json({ error: 'id and fileName are required.' }, 400);
+    }
+
+    const updated = fileRepo.updateMetadata(id, { fileName });
+    if (!updated) {
+      return c.json({ error: 'File not found.' }, 404);
+    }
+
+    return c.json({
+      success: true,
+      file: {
+        id: updated.id,
+        fileName: updated.file_name,
+      },
+    });
+  });
+
+  app.post('/api/drive/files/delete-batch', async (c) => {
+    const unauthorized = requireAuth(c);
+    if (unauthorized) return unauthorized;
+
+    const { uploadService } = getServices(c);
+    const body = await c.req.json().catch(() => ({}));
+    const ids = Array.isArray(body.ids)
+      ? body.ids.map((id) => String(id || '').trim()).filter(Boolean)
+      : [];
+
+    if (ids.length === 0) {
+      return c.json({ error: 'ids is required.' }, 400);
+    }
+
+    let deleted = 0;
+    for (const id of ids) {
+      const result = await uploadService.deleteFile(id);
+      if (result.deleted) deleted += 1;
+    }
+
+    return c.json({
+      success: true,
+      requested: ids.length,
+      deleted,
+    });
   });
 
   app.get('/api/manage/toggleLike/:id', (c) => {

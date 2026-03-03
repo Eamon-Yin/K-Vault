@@ -7,7 +7,9 @@
           v-for="mode in modes"
           :key="mode.value"
           class="chip"
-          :class="{ active: selectedStorage === mode.value }"
+          :class="{ active: selectedStorage === mode.value, disabled: !mode.available }"
+          :disabled="!mode.available"
+          :title="mode.hint"
           @click="selectedStorage = mode.value"
         >
           {{ mode.label }}
@@ -94,14 +96,19 @@ const DEFAULT_CHUNK_SIZE = 5 * 1024 * 1024;
 const SMALL_FILE_THRESHOLD = 20 * 1024 * 1024;
 
 const modes = computed(() => {
-  const fallback = [{ value: 'telegram', label: getStorageLabel('telegram') }];
-  if (!status.value) return fallback;
-
-  const enabled = STORAGE_TYPES
-    .filter((item) => storageEnabledFromStatus(status.value, item.value))
-    .map((item) => ({ value: item.value, label: item.label }));
-
-  return enabled.length ? enabled : fallback;
+  return STORAGE_TYPES.map((item) => {
+    const detail = status.value?.[item.value] || {};
+    const available = storageEnabledFromStatus(status.value, item.value);
+    const configured = Boolean(detail.configured);
+    return {
+      value: item.value,
+      label: item.label,
+      available,
+      hint: available
+        ? 'Ready'
+        : (configured ? (detail.message || 'Configured but unavailable') : 'Not configured'),
+    };
+  });
 });
 
 const currentStorageLabel = computed(() => {
@@ -112,7 +119,7 @@ const currentStorageLabel = computed(() => {
 onMounted(async () => {
   try {
     status.value = await apiFetch('/api/status');
-    const first = modes.value[0];
+    const first = modes.value.find((item) => item.available);
     if (first) selectedStorage.value = first.value;
   } catch (err) {
     error.value = err.message;

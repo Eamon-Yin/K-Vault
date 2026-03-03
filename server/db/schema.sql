@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS files (
   file_name TEXT NOT NULL,
   file_size INTEGER NOT NULL DEFAULT 0,
   mime_type TEXT,
+  folder_path TEXT NOT NULL DEFAULT '',
   list_type TEXT NOT NULL DEFAULT 'None',
   label TEXT NOT NULL DEFAULT 'None',
   liked INTEGER NOT NULL DEFAULT 0,
@@ -36,6 +37,14 @@ CREATE TABLE IF NOT EXISTS files (
 CREATE INDEX IF NOT EXISTS idx_files_created_at ON files(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_files_storage_type ON files(storage_type);
 CREATE INDEX IF NOT EXISTS idx_files_list_type ON files(list_type);
+
+CREATE TABLE IF NOT EXISTS virtual_folders (
+  path TEXT PRIMARY KEY,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_virtual_folders_updated_at ON virtual_folders(updated_at DESC);
 
 CREATE TABLE IF NOT EXISTS sessions (
   token TEXT PRIMARY KEY,
@@ -64,6 +73,7 @@ CREATE TABLE IF NOT EXISTS chunk_uploads (
   total_chunks INTEGER NOT NULL,
   storage_mode TEXT,
   storage_config_id TEXT,
+  folder_path TEXT NOT NULL DEFAULT '',
   created_at INTEGER NOT NULL,
   expires_at INTEGER NOT NULL
 );

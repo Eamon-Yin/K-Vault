@@ -3,7 +3,7 @@ import { useAuthStore } from '../stores/auth';
 import AppShell from '../components/AppShell.vue';
 import LoginView from '../views/LoginView.vue';
 import UploadView from '../views/UploadView.vue';
-import AdminView from '../views/AdminView.vue';
+import DriveView from '../views/DriveView.vue';
 import StorageView from '../views/StorageView.vue';
 
 const routes = [
@@ -19,7 +19,8 @@ const routes = [
     children: [
       { path: '', redirect: '/upload' },
       { path: 'upload', name: 'upload', component: UploadView },
-      { path: 'admin', name: 'admin', component: AdminView, meta: { requiresAdmin: true } },
+      { path: 'drive', name: 'drive', component: DriveView, meta: { requiresAdmin: true } },
+      { path: 'admin', redirect: '/drive' },
       { path: 'storage', name: 'storage', component: StorageView, meta: { requiresAdmin: true } },
     ],
   },

@@ -114,6 +114,51 @@ curl -i -X POST "http://localhost:8080/api/auth/login" \
 
 Persistent data is stored in Docker volume `kvault_data` (and `kvault_redis` when Redis profile is enabled).
 
+## Drive Console Update (2026-03)
+
+Docker runtime now includes a new Vue Drive Console at:
+
+- `http://<host>:8080/app/drive`
+- legacy alias route: `http://<host>:8080/app/admin` (redirects to Drive)
+
+What is new:
+
+- Folder tree + breadcrumbs + list/grid view
+- Create/rename/move/delete folders
+- Batch file move/delete
+- Drag-and-drop upload with queue, progress, retry, cancel
+- Copy direct links and signed share links (with expiry metadata)
+- Storage capability visibility now shows all adapters (configured or not), with status hints
+
+Direct-link compatibility:
+
+- Existing `/file/:id` links remain unchanged
+- Signed share links are additive (`/share/:id?...`) and do not break old links
+
+## Recommended Aggregation Pattern (alist/openlist)
+
+To reduce long-term adapter maintenance, recommended production pattern:
+
+1. K-Vault focuses on:
+   - Drive UX
+   - direct/share links
+   - auth/audit/metadata
+2. alist/openlist focuses on:
+   - multi-provider aggregation (Google Drive/OneDrive/etc.)
+   - upstream mount/credential complexity
+3. K-Vault connects to alist/openlist through WebDAV adapter as a mounted backend.
+
+Suggested deployment:
+
+- Same VPS Docker host (simplest): deploy alist/openlist alongside K-Vault
+- Or independent node: expose WebDAV endpoint securely and connect from K-Vault WebDAV profile
+
+Failure isolation:
+
+- If aggregation layer is unavailable, only that WebDAV profile is unavailable
+- K-Vault site and other storage profiles continue to work
+- `/api/status` and Drive adapter cards show degraded state explicitly
+
 ## Networking Notes
 
 - `ports` publishes container ports to host (`web` uses `${WEB_PORT:-8080}:80`)

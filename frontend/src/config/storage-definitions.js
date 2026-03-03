@@ -1,13 +1,58 @@
 export const STORAGE_TYPES = [
-  { value: 'telegram', label: 'Telegram' },
-  { value: 'r2', label: 'R2' },
-  { value: 's3', label: 'S3' },
-  { value: 'discord', label: 'Discord' },
-  { value: 'huggingface', label: 'HuggingFace' },
-  { value: 'webdav', label: 'WebDAV' },
-  { value: 'github', label: 'GitHub' },
-  { value: 'gdrive', label: 'Google Drive' },
-  { value: 'onedrive', label: 'OneDrive' },
+  {
+    value: 'telegram',
+    label: 'Telegram',
+    layer: 'direct',
+    description: 'Simple and stable upload target.',
+  },
+  {
+    value: 'r2',
+    label: 'R2',
+    layer: 'direct',
+    description: 'Object storage for large files and CDN scenarios.',
+  },
+  {
+    value: 's3',
+    label: 'S3',
+    layer: 'direct',
+    description: 'Any S3-compatible storage service.',
+  },
+  {
+    value: 'discord',
+    label: 'Discord',
+    layer: 'direct',
+    description: 'Upload via webhook or bot to Discord.',
+  },
+  {
+    value: 'huggingface',
+    label: 'HuggingFace',
+    layer: 'direct',
+    description: 'Dataset repo as a lightweight storage backend.',
+  },
+  {
+    value: 'webdav',
+    label: 'WebDAV',
+    layer: 'mounted',
+    description: 'Mounted or aggregated storage entry (recommended with alist/openlist).',
+  },
+  {
+    value: 'github',
+    label: 'GitHub',
+    layer: 'direct',
+    description: 'Release assets or Contents API upload.',
+  },
+  {
+    value: 'gdrive',
+    label: 'Google Drive',
+    layer: 'direct',
+    description: 'Google Drive folder with service account or access token.',
+  },
+  {
+    value: 'onedrive',
+    label: 'OneDrive',
+    layer: 'direct',
+    description: 'Microsoft Graph drive integration.',
+  },
 ];
 
 export const STORAGE_TYPE_LABELS = STORAGE_TYPES.reduce((acc, item) => {
@@ -96,6 +141,19 @@ export const STORAGE_NOTES = {
   gdrive: 'Recommended: Service Account + shared folder. Adapter writes file appProperties for key lookup.',
   onedrive: 'Supports accessToken or Microsoft Graph client credentials mode.',
 };
+
+export const STORAGE_GROUPS = [
+  {
+    value: 'direct',
+    label: 'Direct Upload Backends',
+    description: 'These backends are uploaded directly by K-Vault.',
+  },
+  {
+    value: 'mounted',
+    label: 'Mounted / Aggregation Backends',
+    description: 'Recommended for WebDAV mount points such as alist/openlist.',
+  },
+];
 
 export function getStorageFields(type) {
   return STORAGE_FIELDS[type] || [];

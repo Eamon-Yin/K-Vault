@@ -258,6 +258,11 @@ textarea {
   border-color: #9ca3af;
 }
 
+.chip.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .dropzone {
   margin: 14px 0;
   border: 2px dashed #cbd5e1;
@@ -573,6 +578,263 @@ textarea {
   font-size: 12px;
 }
 
+.drive-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.drive-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.adapter-visibility {
+  display: grid;
+  gap: 10px;
+}
+
+.adapter-visibility-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.adapter-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.adapter-card {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px;
+  display: grid;
+  gap: 6px;
+  background: #ffffff;
+  cursor: pointer;
+}
+
+.adapter-card.active {
+  border-color: #94a3b8;
+  box-shadow: inset 0 0 0 1px #cbd5e1;
+}
+
+.adapter-card.unavailable {
+  opacity: 0.85;
+}
+
+.adapter-card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.adapter-status {
+  margin: 0;
+  font-size: 12px;
+}
+
+.adapter-status.ok {
+  color: var(--ok);
+}
+
+.adapter-status.warn {
+  color: #d97706;
+}
+
+.adapter-status.fail {
+  color: var(--danger);
+}
+
+.adapter-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-soft);
+}
+
+.drive-dropzone {
+  border: 2px dashed #cbd5e1;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #f8fafc, #f1f5f9);
+  padding: 22px 14px;
+  text-align: center;
+  cursor: pointer;
+  transition: transform 0.2s ease, border-color 0.2s ease;
+}
+
+.drive-dropzone:hover,
+.drive-dropzone.active {
+  border-color: #94a3b8;
+  transform: translateY(-1px);
+}
+
+.drive-layout {
+  display: grid;
+  grid-template-columns: minmax(240px, 280px) minmax(0, 1fr);
+  gap: 12px;
+}
+
+.folder-tree {
+  display: grid;
+  gap: 10px;
+  max-height: 680px;
+  overflow: auto;
+  align-content: start;
+}
+
+.folder-tree-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.tree-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.tree-item {
+  border-radius: 8px;
+}
+
+.tree-item.active {
+  background: #f1f5f9;
+}
+
+.tree-link {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border: 0;
+  background: transparent;
+  padding: 8px 8px;
+  text-align: left;
+  cursor: pointer;
+  color: var(--text);
+}
+
+.tree-link small {
+  color: var(--text-soft);
+}
+
+.drive-main {
+  display: grid;
+  gap: 10px;
+}
+
+.drive-toolbar {
+  display: grid;
+  gap: 10px;
+}
+
+.breadcrumbs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.crumb {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #ffffff;
+  color: var(--text);
+  padding: 5px 10px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.folder-inline-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.folder-card {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+  background: #ffffff;
+}
+
+.folder-open {
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  display: grid;
+  gap: 4px;
+  color: var(--text);
+}
+
+.folder-open small {
+  color: var(--text-soft);
+}
+
+.folder-card-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.file-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 10px;
+}
+
+.file-card {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+  background: #ffffff;
+}
+
+.file-check {
+  justify-self: start;
+}
+
+.file-preview {
+  width: 100%;
+  min-height: 120px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  display: grid;
+  place-items: center;
+  text-decoration: none;
+  color: var(--text-soft);
+  overflow: hidden;
+}
+
+.file-preview img {
+  width: 100%;
+  height: 120px;
+  object-fit: cover;
+}
+
+.file-name {
+  word-break: break-all;
+}
+
+.file-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 @media (max-width: 960px) {
   .app-bg {
     width: calc(100% - 20px);
@@ -601,6 +863,18 @@ textarea {
   }
 
   .storage-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .drive-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .folder-tree {
+    max-height: 260px;
+  }
+
+  .adapter-grid {
     grid-template-columns: 1fr;
   }
 }

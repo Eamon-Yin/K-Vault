@@ -60,6 +60,22 @@
 - **Vue3 Modern Frontend** - New Vue3 app under `/app/`, while legacy pages remain available for compatibility
 - **GitHub Actions Docker Build** - Auto-build/push `api` + `web` images on main/tag push
 
+### 2026-03 Product Update
+
+- New Drive Console in Vue app (`/app/drive`) with:
+  - folder tree + breadcrumbs
+  - file/folder operations (create, rename, move, delete, batch actions)
+  - drag upload queue (progress, retry, cancel)
+  - direct link + signed share link copy
+- Storage capability cards now keep all adapters visible (configured or not) with explicit status/hints.
+- Existing direct links (`/file/:id`) remain compatible.
+
+Recommended architecture for multi-cloud mounts:
+
+- Use `WebDAV` adapter in K-Vault as a mounted entry.
+- Use `alist/openlist` as aggregation layer for Google Drive / OneDrive / other providers.
+- This keeps K-Vault focused on UX/link/auth while reducing adapter maintenance complexity.
+
 ---
 
 ## Quick Deployment

@@ -1,4 +1,5 @@
-﻿const { buildPublicFileId, normalizeStorageType } = require('../storage/common');
+const { buildPublicFileId, normalizeStorageType } = require('../storage/common');
+const { normalizeFolderPath } = require('../repos/file-repo');
 
 class UploadService {
   constructor({ storageRepo, fileRepo, storageFactory }) {
@@ -22,14 +23,16 @@ class UploadService {
     buffer,
     storageId,
     storageMode,
+    folderPath,
   }) {
     const storageConfig = this.resolveStorage({ storageId, storageMode });
     const adapter = this.storageFactory.createAdapter(storageConfig);
     const storageType = normalizeStorageType(storageConfig.type);
+    const normalizedFolderPath = normalizeFolderPath(folderPath);
 
     const publicId = buildPublicFileId(storageType, fileName, mimeType);
 
-    let adapterStorageKey = publicId;
+    let adapterStorageKey = normalizedFolderPath ? `${normalizedFolderPath}/${publicId}` : publicId;
     if (storageType === 'huggingface') {
       adapterStorageKey = `uploads/${publicId}`;
     }
@@ -52,6 +55,7 @@ class UploadService {
       fileName,
       fileSize,
       mimeType,
+      folderPath: normalizedFolderPath,
       extra: uploadResult.metadata || {},
     });
 
@@ -66,7 +70,13 @@ class UploadService {
     };
   }
 
-  async uploadFromUrl({ url, storageId, storageMode, maxBytes = 20 * 1024 * 1024 }) {
+  async uploadFromUrl({
+    url,
+    storageId,
+    storageMode,
+    folderPath,
+    maxBytes = 20 * 1024 * 1024,
+  }) {
     const parsedUrl = new URL(url);
     if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
       throw new Error('Only HTTP/HTTPS URL is supported.');
@@ -120,6 +130,7 @@ class UploadService {
       buffer: arrayBuffer,
       storageId,
       storageMode,
+      folderPath,
     });
   }
 

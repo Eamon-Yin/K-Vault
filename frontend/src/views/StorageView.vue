@@ -4,6 +4,7 @@
       <div>
         <h2>Storage Config</h2>
         <p class="muted">Manage backend profiles, test connectivity, and switch default target.</p>
+        <p class="muted">WebDAV is recommended as a mounted aggregation entry (for example alist/openlist WebDAV endpoint).</p>
       </div>
       <button class="btn btn-ghost" @click="resetForm">New Config</button>
     </div>
@@ -54,7 +55,12 @@
           <label>
             Type
             <select v-model="form.type" @change="onTypeChanged">
-              <option v-for="type in STORAGE_TYPES" :key="type.value" :value="type.value">{{ type.label }}</option>
+              <optgroup label="Direct Upload Backends">
+                <option v-for="type in directTypes" :key="type.value" :value="type.value">{{ type.label }}</option>
+              </optgroup>
+              <optgroup label="Mounted / Aggregation Backends">
+                <option v-for="type in mountedTypes" :key="type.value" :value="type.value">{{ type.label }}</option>
+              </optgroup>
             </select>
           </label>
 
@@ -158,6 +164,8 @@ const form = reactive({
 });
 
 const currentFields = computed(() => getStorageFields(form.type));
+const directTypes = computed(() => STORAGE_TYPES.filter((item) => item.layer !== 'mounted'));
+const mountedTypes = computed(() => STORAGE_TYPES.filter((item) => item.layer === 'mounted'));
 
 onMounted(async () => {
   form.config = buildConfigByType(form.type);

@@ -10,7 +10,7 @@
       </div>
       <nav class="nav-row">
         <router-link class="nav-link" to="/upload">Upload</router-link>
-        <router-link class="nav-link" to="/admin">Files</router-link>
+        <router-link class="nav-link" to="/drive">Drive</router-link>
         <router-link class="nav-link" to="/storage">Storage</router-link>
         <a class="nav-link" href="/index.html" target="_blank" rel="noopener">Legacy</a>
       </nav>
