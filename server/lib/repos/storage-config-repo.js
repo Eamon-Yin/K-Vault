@@ -236,55 +236,62 @@ class StorageConfigRepository {
   }
 
   ensureBootstrapStorage() {
-    const existing = get(this.db, 'SELECT COUNT(1) AS c FROM storage_configs');
-    if (existing && Number(existing.c) > 0) {
-      return;
-    }
-
     const bootstrap = this.appConfig.bootstrapDefaultStorage;
     const type = normalizeStorageType(bootstrap.type || 'telegram');
 
-    const byType = bootstrap[type] || {};
-
     const hasRequired = {
-      telegram: Boolean(byType.botToken && byType.chatId),
-      r2: Boolean(byType.endpoint && byType.bucket && byType.accessKeyId && byType.secretAccessKey),
-      s3: Boolean(byType.endpoint && byType.bucket && byType.accessKeyId && byType.secretAccessKey),
-      discord: Boolean(byType.webhookUrl || (byType.botToken && byType.channelId)),
-      huggingface: Boolean(byType.token && byType.repo),
-      webdav: Boolean(byType.baseUrl && (byType.bearerToken || (byType.username && byType.password))),
-      github: Boolean(byType.repo && byType.token),
+      telegram: Boolean(bootstrap.telegram?.botToken && bootstrap.telegram?.chatId),
+      r2: Boolean(bootstrap.r2?.endpoint && bootstrap.r2?.bucket && bootstrap.r2?.accessKeyId && bootstrap.r2?.secretAccessKey),
+      s3: Boolean(bootstrap.s3?.endpoint && bootstrap.s3?.bucket && bootstrap.s3?.accessKeyId && bootstrap.s3?.secretAccessKey),
+      discord: Boolean(bootstrap.discord?.webhookUrl || (bootstrap.discord?.botToken && bootstrap.discord?.channelId)),
+      huggingface: Boolean(bootstrap.huggingface?.token && bootstrap.huggingface?.repo),
+      webdav: Boolean(bootstrap.webdav?.baseUrl && (bootstrap.webdav?.bearerToken || (bootstrap.webdav?.username && bootstrap.webdav?.password))),
+      github: Boolean(bootstrap.github?.repo && bootstrap.github?.token),
     };
 
-    if (!hasRequired[type]) {
-      if (!hasRequired.telegram) {
-        return;
-      }
+    const configs = this.list(true);
+    const defaultExists = configs.some((item) => Boolean(item.isDefault));
+    const preferredTypeReady = Boolean(hasRequired[type]);
+    const preferredType = preferredTypeReady ? type : (hasRequired.telegram ? 'telegram' : '');
+
+    const shouldDefaultByType = (storageType) => !defaultExists && preferredType === storageType;
+
+    const ensureBootstrapType = (storageType, config, name) => {
+      if (!hasRequired[storageType]) return;
+
+      const existingType = configs.find((item) => item.type === storageType);
+      if (existingType) return;
+
       this.create({
-        name: 'Telegram (Env Bootstrap)',
-        type: 'telegram',
-        config: bootstrap.telegram,
+        name,
+        type: storageType,
+        config,
         enabled: true,
-        isDefault: true,
+        isDefault: shouldDefaultByType(storageType),
         metadata: {
           source: 'env-bootstrap',
-          envSource: bootstrap.telegram?.envSource || {},
+          envSource: config?.envSource || {},
         },
       });
-      return;
-    }
+    };
 
-    this.create({
-      name: `${type.toUpperCase()} (Env Bootstrap)`,
-      type,
-      config: byType,
-      enabled: true,
-      isDefault: true,
-      metadata: {
-        source: 'env-bootstrap',
-        envSource: byType?.envSource || {},
-      },
-    });
+    ensureBootstrapType('telegram', bootstrap.telegram || {}, 'Telegram (Env Bootstrap)');
+    ensureBootstrapType('r2', bootstrap.r2 || {}, 'R2 (Env Bootstrap)');
+    ensureBootstrapType('s3', bootstrap.s3 || {}, 'S3 (Env Bootstrap)');
+    ensureBootstrapType('discord', bootstrap.discord || {}, 'Discord (Env Bootstrap)');
+    ensureBootstrapType('huggingface', bootstrap.huggingface || {}, 'HUGGINGFACE (Env Bootstrap)');
+    ensureBootstrapType('webdav', bootstrap.webdav || {}, 'WEBDAV (Env Bootstrap)');
+    ensureBootstrapType('github', bootstrap.github || {}, 'GITHUB (Env Bootstrap)');
+
+    if (!defaultExists) {
+      const fallback = this.getDefault();
+      if (!fallback) {
+        const anyEnabled = this.list(true).find((item) => item.enabled);
+        if (anyEnabled) {
+          this.setDefault(anyEnabled.id);
+        }
+      }
+    }
   }
 }
 

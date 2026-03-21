@@ -793,7 +793,7 @@ function createApp() {
 
         status[type] = {
           connected: Boolean(result.connected),
-          enabled: Boolean(result.connected),
+          enabled: Boolean(storageConfig.enabled),
           configured: true,
           layer: status[type]?.layer || 'direct',
           message: result.connected
@@ -806,7 +806,7 @@ function createApp() {
         const errorModel = toStorageErrorPayload(error);
         status[type] = {
           connected: false,
-          enabled: false,
+          enabled: Boolean(storageConfig.enabled),
           configured: true,
           layer: status[type]?.layer || 'direct',
           message: `Connection error: ${errorModel.detail}`,

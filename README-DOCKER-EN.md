@@ -195,6 +195,84 @@ Failure isolation:
 - Never expose or commit tokens/secrets (`TG_BOT_TOKEN`, `DISCORD_BOT_TOKEN`, `HF_TOKEN`, `SESSION_SECRET`, `CONFIG_ENCRYPTION_KEY`, etc.)
 - If any token/secret may be leaked, rotate it immediately and restart related services
 
+## Docker Storage Troubleshooting (GitHub/HuggingFace shows Not configured)
+
+If Cloudflare deployment works but Docker shows gray cards (`enabled=false`, `configured=false`), follow this checklist.
+
+### 0) One-command doctor (recommended)
+
+```bash
+npm run docker:doctor
+```
+
+It automatically checks:
+
+- `api` container availability
+- GitHub/HuggingFace configured/connected in `/api/status`
+- env injection inside container
+- outbound connectivity to GitHub/HuggingFace
+- bootstrap profile presence in `storage_configs`
+
+If you still need deeper manual inspection, continue with steps 1)-7) below.
+
+### 1) Confirm you are checking Docker runtime status
+
+Docker status comes from Node API (`server/`), not Pages Functions:
+
+```bash
+curl -s http://localhost:8080/api/status
+```
+
+### 2) Verify env vars are actually present inside container
+
+```bash
+docker compose exec api sh -lc "env | grep -E 'HF_|HUGGINGFACE|GITHUB_|GH_|DEFAULT_STORAGE_TYPE'"
+```
+
+Requirement: at least one valid HuggingFace variable and one valid GitHub variable should be visible.
+
+### 3) Check outbound connectivity from container
+
+```bash
+docker compose exec api sh -lc "wget -S --spider https://api.github.com 2>&1 | head -n 20"
+docker compose exec api sh -lc "wget -S --spider https://huggingface.co 2>&1 | head -n 20"
+```
+
+DNS/proxy/firewall issues usually show up here immediately.
+
+### 4) Verify bootstrap storage profiles in DB
+
+```bash
+docker compose exec api sh -lc "node -e \"const { createContainer }=require('./lib/container'); const c=createContainer(process.env); console.log(JSON.stringify(c.storageRepo.list(false).map(x=>({type:x.type,name:x.name,enabled:x.enabled,isDefault:x.isDefault})), null, 2));\""
+```
+
+Expected: includes `huggingface` / `github` entries (e.g. `HUGGINGFACE (Env Bootstrap)`, `GITHUB (Env Bootstrap)`).
+
+### 5) If `.env` changed, rebuild/restart is required
+
+```bash
+docker compose down
+docker compose up -d --build
+```
+
+Latest runtime backfills missing env bootstrap profiles on startup. No restart means no refresh.
+
+### 6) Supported env aliases in Docker runtime
+
+- HuggingFace token: `HF_TOKEN` / `HUGGINGFACE_TOKEN` / `HF_API_TOKEN`
+- HuggingFace repo: `HF_REPO` / `HUGGINGFACE_REPO` / `HF_DATASET_REPO`
+- GitHub token: `GITHUB_TOKEN` / `GH_TOKEN` / `GITHUB_PAT`
+- GitHub repo: `GITHUB_REPO` / `GH_REPO` / `GITHUB_REPOSITORY`
+
+The runtime also strips wrapping quotes (for example `"ghp_xxx"`) to reduce false negatives from `.env` formatting mistakes.
+
+### 7) Fast classification: not configured vs configured-but-disconnected
+
+- `configured=false`: usually env not injected or wrong variable names.
+- `configured=true` and `connected=false`: usually token scope, repo access, or network/proxy issues.
+
+Classify first, then fix accordingly.
+
 ## Manage List API
 
 `GET /api/manage/list` now defaults to the first page when query parameters are omitted.

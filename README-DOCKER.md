@@ -205,6 +205,86 @@ curl -i -X POST "http://localhost:8080/api/auth/login" \
 
 ---
 
+## Docker 存储排障（GitHub/HuggingFace 显示 Not configured）
+
+如果 Cloudflare 正常、Docker 显示灰色（`enabled=false`、`configured=false`），按下面顺序排查。
+
+### 0) 一键诊断（推荐）
+
+```bash
+npm run docker:doctor
+```
+
+该命令会自动检查：
+
+- `api` 容器可用性
+- `/api/status` 中 GitHub/HuggingFace 的 configured/connected
+- 容器内环境变量注入
+- 容器到 GitHub/HuggingFace 的网络连通
+- `storage_configs` 中是否已引导创建对应配置
+
+如果仍需手工深入，可继续执行下面 1)-7) 步骤。
+
+### 1) 先确认你在看的是 Docker Runtime 的状态接口
+
+Docker 部署的状态来自 Node API（`server/`），不是 Pages Functions。请检查：
+
+```bash
+curl -s http://localhost:8080/api/status
+```
+
+### 2) 检查容器是否真的拿到环境变量
+
+```bash
+docker compose exec api sh -lc "env | grep -E 'HF_|HUGGINGFACE|GITHUB_|GH_|DEFAULT_STORAGE_TYPE'"
+```
+
+要求：至少能看到 HuggingFace 与 GitHub 对应变量之一（见下方别名兼容）。
+
+### 3) 检查网络连通性（容器内）
+
+```bash
+docker compose exec api sh -lc "wget -S --spider https://api.github.com 2>&1 | head -n 20"
+docker compose exec api sh -lc "wget -S --spider https://huggingface.co 2>&1 | head -n 20"
+```
+
+若 DNS、代理、防火墙有问题，会在这里直接暴露。
+
+### 4) 检查存储引导是否已写入数据库
+
+```bash
+docker compose exec api sh -lc "node -e \"const { createContainer }=require('./lib/container'); const c=createContainer(process.env); console.log(JSON.stringify(c.storageRepo.list(false).map(x=>({type:x.type,name:x.name,enabled:x.enabled,isDefault:x.isDefault})), null, 2));\""
+```
+
+期望结果：包含 `huggingface` / `github` 配置项（例如 `HUGGINGFACE (Env Bootstrap)`、`GITHUB (Env Bootstrap)`）。
+
+### 5) 如果刚改了 `.env`，必须重建并重启
+
+```bash
+docker compose down
+docker compose up -d --build
+```
+
+说明：最新版本会在启动时自动补齐缺失的 env bootstrap 存储配置；不重启不会生效。
+
+### 6) 变量名兼容清单（Docker）
+
+- HuggingFace token：`HF_TOKEN` / `HUGGINGFACE_TOKEN` / `HF_API_TOKEN`
+- HuggingFace repo：`HF_REPO` / `HUGGINGFACE_REPO` / `HF_DATASET_REPO`
+- GitHub token：`GITHUB_TOKEN` / `GH_TOKEN` / `GITHUB_PAT`
+- GitHub repo：`GITHUB_REPO` / `GH_REPO` / `GITHUB_REPOSITORY`
+
+系统会自动去掉包裹引号（例如 `"ghp_xxx"`），减少 `.env` 误配导致的“未配置”误判。
+
+### 7) 快速判定是“没配置”还是“已配置但连不上”
+
+- `configured=false`：通常是变量没进容器，或变量名不匹配。
+- `configured=true` 且 `connected=false`：通常是 token 权限、repo 不存在、网络/代理问题。
+
+这两类问题处理方式不同，先区分再修复。
+
+---
+
 ## 管理列表 API（`/api/manage/list`）
 
 默认不带参数时返回第一页。

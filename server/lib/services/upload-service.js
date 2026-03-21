@@ -34,7 +34,9 @@ class UploadService {
 
     let adapterStorageKey = normalizedFolderPath ? `${normalizedFolderPath}/${publicId}` : publicId;
     if (storageType === 'huggingface') {
-      adapterStorageKey = `uploads/${publicId}`;
+      adapterStorageKey = normalizedFolderPath
+        ? `uploads/${normalizedFolderPath}/${publicId}`
+        : `uploads/${publicId}`;
     }
 
     const uploadResult = await adapter.upload({
